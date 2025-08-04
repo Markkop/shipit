@@ -159,7 +159,7 @@ ${diff}
 
 ## Commit Message:`;
 
-export const responseSchema = z.object({
+export const commitSchema = z.object({
   files: z
     .array(z.string())
     .describe("Array of file paths affected by this commit group"),
@@ -193,6 +193,10 @@ export const responseSchema = z.object({
     .describe(
       "Array of footer strings (e.g., 'BREAKING CHANGE: ...', 'Closes #123')",
     ),
+});
+
+export const responseSchema = z.object({
+  commits: z.array(commitSchema).describe("Array of commit objects"),
 });
 
 export const prInstruction = (

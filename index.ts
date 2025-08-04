@@ -95,7 +95,9 @@ async function main() {
           log.info(`🎫 Found Jira ticket: ${chalk.bold(jiraTicketId)}`);
         }
       } else {
-        log.warn(`⚠️  Jira integration enabled but no ticket ID found in branch '${currentBranch}'`);
+        log.warn(
+          `⚠️  Jira integration enabled but no ticket ID found in branch '${currentBranch}'`,
+        );
         log.info("Expected format: XX-YYYY (e.g., PROJ-123)");
       }
     } catch (error) {
@@ -185,76 +187,83 @@ Pick a lane:
   commitSpinner.start("Crafting commit messages that don't suck...");
 
   let commitCount = 0;
-  for await (const commit of elementStream) {
+  for await (const response of elementStream) {
     log.message("", { symbol: chalk.gray("│") });
-    log.info(JSON.stringify(commit, null, 2));
 
     if (commitCount === 0) {
       commitSpinner.stop("Here come the goods...");
     }
 
-    const { commitMessage, displayMessage } = buildCommitMessages(commit, jiraTicketId);
+    for (const commit of response.commits) {
+      const { commitMessage, displayMessage } = buildCommitMessages(
+        commit,
+        jiraTicketId,
+      );
 
-    log.message(chalk.gray("━━━"), { symbol: chalk.gray("│") });
-    log.message(displayMessage, { symbol: chalk.gray("│") });
+      log.message(chalk.gray("━━━"), { symbol: chalk.gray("│") });
+      log.message(displayMessage, { symbol: chalk.gray("│") });
 
-    if (commit.body?.length) {
-      log.message(chalk.dim(wrapText(commit.body)), {
-        symbol: chalk.gray("│"),
-      });
-    }
+      if (commit.body?.length) {
+        log.message(chalk.dim(wrapText(commit.body)), {
+          symbol: chalk.gray("│"),
+        });
+      }
 
-    if (commit.footers?.length) {
+      if (commit.footers?.length) {
+        log.message(
+          `${commit.footers.map((footer) => wrapText(footer)).join("\n")}`,
+          { symbol: chalk.gray("│") },
+        );
+      }
+
+      log.message(chalk.gray("━━━"), { symbol: chalk.gray("│") });
       log.message(
-        `${commit.footers.map((footer) => wrapText(footer)).join("\n")}`,
+        `Applies to these ${chalk.bold(
+          `${commit.files.length} ${pluralize(commit.files.length, "file")}`,
+        )}: ${chalk.dim(wrapText(commit.files.join(", ")))}`,
         { symbol: chalk.gray("│") },
       );
-    }
 
-    log.message(chalk.gray("━━━"), { symbol: chalk.gray("│") });
-    log.message(
-      `Applies to these ${chalk.bold(
-        `${commit.files.length} ${pluralize(commit.files.length, "file")}`,
-      )}: ${chalk.dim(wrapText(commit.files.join(", ")))}`,
-      { symbol: chalk.gray("│") },
-    );
+      const shouldCommit = await confirm({
+        message: `Ship it?`,
+      });
 
-    const shouldCommit = await confirm({
-      message: `Ship it?`,
-    });
+      if (shouldCommit) {
+        let message = commitMessage;
+        if (commit.body?.length) message += `\n\n${commit.body}`;
+        if (commit.footers?.length)
+          message += `\n\n${commit.footers.join("\n")}`;
 
-    if (shouldCommit) {
-      let message = commitMessage;
-      if (commit.body?.length) message += `\n\n${commit.body}`;
-      if (commit.footers?.length) message += `\n\n${commit.footers.join("\n")}`;
+        try {
+          await git.add(commit.files);
+        } catch (error) {
+          log.error(
+            `Dang, couldn't stage the files: ${getErrorMessage(error)}`,
+          );
+          process.exit(1);
+        }
 
-      try {
-        await git.add(commit.files);
-      } catch (error) {
-        log.error(`Dang, couldn't stage the files: ${getErrorMessage(error)}`);
-        process.exit(1);
+        try {
+          const COMMIT_HASH_LENGTH = 7;
+          const commitResult = await git.commit(message, commit.files);
+          log.success(
+            `Committed to ${commitResult.branch}: ${chalk.bold(
+              commitResult.commit.slice(0, COMMIT_HASH_LENGTH),
+            )} ${chalk.dim(
+              `(${commitResult.summary.changes} changes, ${chalk.green(
+                "+" + commitResult.summary.insertions,
+              )}, ${chalk.red("-" + commitResult.summary.deletions)})`,
+            )}`,
+          );
+        } catch (error) {
+          log.error(`Commit failed: ${getErrorMessage(error)}`);
+          process.exit(1);
+        }
+
+        commitCount++;
+      } else {
+        log.info("Your loss, champ. Next!");
       }
-
-      try {
-        const COMMIT_HASH_LENGTH = 7;
-        const commitResult = await git.commit(message, commit.files);
-        log.success(
-          `Committed to ${commitResult.branch}: ${chalk.bold(
-            commitResult.commit.slice(0, COMMIT_HASH_LENGTH),
-          )} ${chalk.dim(
-            `(${commitResult.summary.changes} changes, ${chalk.green(
-              "+" + commitResult.summary.insertions,
-            )}, ${chalk.red("-" + commitResult.summary.deletions)})`,
-          )}`,
-        );
-      } catch (error) {
-        log.error(`Commit failed: ${getErrorMessage(error)}`);
-        process.exit(1);
-      }
-
-      commitCount++;
-    } else {
-      log.info("Your loss, champ. Next!");
     }
   }
 
