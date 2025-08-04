@@ -13,10 +13,11 @@ import { handlePullRequest } from "./pr.ts";
 import { createPrompts } from "./prompts.ts";
 import { handlePush } from "./push.ts";
 import {
+  buildCommitMessages,
   categorizeChangesCount,
   categorizeTokenCount,
-  decapitalizeFirstLetter,
   detectAndConfigureAIProvider,
+  extractJiraTicketId,
   getErrorMessage,
   pluralize,
   wrapText,
@@ -34,7 +35,8 @@ cli
   .option("-f,--force", "Automatically accept all commits, same as --yes")
   .option("-u,--unsafe", "Skip token count verification")
   .option("-p, --push", "Push the changes if any after processing all commits")
-  .option("--pr", "Automatically create a pull request");
+  .option("--pr", "Automatically create a pull request")
+  .option("-j,--jira", "Enable Jira ticket ID integration from branch name");
 
 cli.help();
 cli.version(version);
@@ -79,6 +81,26 @@ async function main() {
       "Not a git repo? What are you trying to commit here? Run `git init` first! 🤦",
     );
     process.exit(1);
+  }
+
+  // Handle Jira integration if enabled
+  let jiraTicketId: string | undefined;
+  if (options["jira"]) {
+    try {
+      const currentBranch = await git.revparse(["--abbrev-ref", "HEAD"]);
+      jiraTicketId = extractJiraTicketId(currentBranch);
+
+      if (jiraTicketId) {
+        if (!options["silent"] && !options["force"] && !options["yes"]) {
+          log.info(`🎫 Found Jira ticket: ${chalk.bold(jiraTicketId)}`);
+        }
+      } else {
+        log.warn(`⚠️  Jira integration enabled but no ticket ID found in branch '${currentBranch}'`);
+        log.info("Expected format: XX-YYYY (e.g., PROJ-123)");
+      }
+    } catch (error) {
+      log.error(`Failed to get current branch: ${getErrorMessage(error)}`);
+    }
   }
 
   const { files: _files, isClean, ...status } = await git.status(args);
@@ -165,24 +187,13 @@ Pick a lane:
   let commitCount = 0;
   for await (const commit of elementStream) {
     log.message("", { symbol: chalk.gray("│") });
+    log.info(JSON.stringify(commit, null, 2));
+
     if (commitCount === 0) {
       commitSpinner.stop("Here come the goods...");
     }
 
-    const description = decapitalizeFirstLetter(commit.description);
-    let prefix = `${commit.type}${
-      commit.scope?.length ? `(${commit.scope})` : ""
-    }${commit.breaking ? "!" : ""}`;
-
-    // The AI may redundantly include the prefix in the description, so we remove it.
-    if (description.startsWith(prefix)) {
-      prefix = "";
-    }
-
-    const displayMessage = `${
-      prefix ? `${chalk.bold(`${prefix}: `)}` : ""
-    }${description}`;
-    const commitMessage = `${prefix ? `${prefix}: ` : ""}${description}`;
+    const { commitMessage, displayMessage } = buildCommitMessages(commit, jiraTicketId);
 
     log.message(chalk.gray("━━━"), { symbol: chalk.gray("│") });
     log.message(displayMessage, { symbol: chalk.gray("│") });

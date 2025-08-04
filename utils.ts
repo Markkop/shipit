@@ -172,3 +172,67 @@ export const detectAndConfigureAIProvider = (): AIProviderConfig => {
       "- GOOGLE_GENERATIVE_AI_API_KEY for Gemini",
   );
 };
+
+/**
+ * Extracts a Jira ticket ID from a branch name.
+ * Looks for patterns like XX-YYYY where XX is 2+ uppercase letters and YYYY is 1+ digits.
+ * @param branchName The branch name to extract Jira ID from.
+ * @returns The extracted Jira ticket ID or undefined if none found.
+ */
+export const extractJiraTicketId = (branchName: string): string | undefined => {
+  // Match patterns like ABC-123, PROJ-4567, etc.
+  // Pattern: 2+ uppercase letters, hyphen, 1+ digits
+  const jiraPattern = /([A-Z]{2,}-\d+)/;
+  const match = branchName.match(jiraPattern);
+  return match ? match[1] : undefined;
+};
+
+/**
+ * Builds commit message and display message based on commit data and Jira integration.
+ * @param commit The commit object with type, scope, description, breaking flag.
+ * @param jiraTicketId Optional Jira ticket ID for integration.
+ * @returns Object containing commitMessage and displayMessage.
+ */
+export const buildCommitMessages = (
+  commit: {
+    type: string;
+    scope?: string;
+    description: string;
+    breaking: boolean;
+  },
+  jiraTicketId?: string,
+): { commitMessage: string; displayMessage: string } => {
+  const description = decapitalizeFirstLetter(commit.description);
+
+  // Handle Jira integration format
+  if (jiraTicketId) {
+    const jiraType = `${commit.type}${commit.breaking ? "!" : ""}`;
+    const jiraDescription = description.replace(/\s+/g, "-");
+    const fullJiraMessage = `${jiraTicketId}-${jiraType}-${jiraDescription}`;
+
+    return {
+      commitMessage: fullJiraMessage,
+      displayMessage: fullJiraMessage,
+    };
+  }
+
+  // Standard conventional commit format
+  let prefix = `${commit.type}${
+    commit.scope?.length ? `(${commit.scope})` : ""
+  }${commit.breaking ? "!" : ""}`;
+
+  // The AI may redundantly include the prefix in the description, so we remove it.
+  if (description.startsWith(prefix)) {
+    prefix = "";
+  }
+
+  const displayMessage = `${
+    prefix ? `${chalk.bold(`${prefix}: `)}` : ""
+  }${description}`;
+  const commitMessage = `${prefix ? `${prefix}: ` : ""}${description}`;
+
+  return {
+    commitMessage,
+    displayMessage,
+  };
+};
