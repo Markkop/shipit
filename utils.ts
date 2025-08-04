@@ -128,10 +128,13 @@ export const getBaseBranch = async (git: Git): Promise<string | undefined> => {
 /**
  * Detects available AI provider based on environment variables and configures the appropriate provider.
  * Prioritizes Anthropic, then OpenAI, then Google Gemini.
+ * @param enableThinking Whether to use thinking models for deeper reasoning
  * @returns The AI provider configuration object.
  * @throws Error if no valid API key is found.
  */
-export const detectAndConfigureAIProvider = (): AIProviderConfig => {
+export const detectAndConfigureAIProvider = (
+  enableThinking: boolean = false,
+): AIProviderConfig => {
   // Check for Anthropic API key
   const anthropicKey = process.env["ANTHROPIC_API_KEY"];
   if (anthropicKey) {
@@ -149,8 +152,9 @@ export const detectAndConfigureAIProvider = (): AIProviderConfig => {
     const openai = createOpenAI({ apiKey: openaiKey });
     return {
       provider: "openai",
-      model: openai("gpt-4o"),
-      name: "GPT-4o",
+      // Use o1-mini for thinking, gpt-4o for regular
+      model: openai(enableThinking ? "o1" : "gpt-4o"),
+      name: enableThinking ? "o1" : "GPT-4o",
     };
   }
 
@@ -160,8 +164,11 @@ export const detectAndConfigureAIProvider = (): AIProviderConfig => {
     const google = createGoogleGenerativeAI({ apiKey: googleKey });
     return {
       provider: "google",
-      model: google("gemini-2.5-flash"),
-      name: "Gemini 2.5 Flash",
+      // Use gemini-2.0-flash for thinking, gemini-2.5-flash for regular
+      model: google(
+        enableThinking ? "gemini-2.0-flash-001" : "gemini-2.5-flash",
+      ),
+      name: enableThinking ? "Gemini 2.0 Flash (thinking)" : "Gemini 2.5 Flash",
     };
   }
 

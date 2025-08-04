@@ -36,7 +36,8 @@ cli
   .option("-u,--unsafe", "Skip token count verification")
   .option("-p, --push", "Push the changes if any after processing all commits")
   .option("--pr", "Automatically create a pull request")
-  .option("-j,--jira", "Enable Jira ticket ID integration from branch name");
+  .option("-j,--jira", "Enable Jira ticket ID integration from branch name")
+  .option("-t,--thinking", "Enable thinking models for deeper reasoning");
 
 cli.help();
 cli.version(version);
@@ -56,7 +57,7 @@ async function main() {
 
   let aiConfig;
   try {
-    aiConfig = detectAndConfigureAIProvider();
+    aiConfig = detectAndConfigureAIProvider(options["thinking"]);
   } catch (error) {
     log.error(getErrorMessage(error));
     process.exit(1);
@@ -67,7 +68,7 @@ async function main() {
       chalk.italic("Because writing 'fix stuff' gets old real quick..."),
       chalk.bold("🧹 Git Your Sh*t Together"),
     );
-    log.info(`Using ${chalk.bold(aiConfig.name)} for AI assistance`);
+    log.info(`Using ${chalk.bold(aiConfig.name)} for AI assistance${options["thinking"] ? chalk.cyan(" (thinking mode enabled)") : ""}`);
   }
 
   const analysisSpinner = spinner();
@@ -175,12 +176,35 @@ Pick a lane:
   const { elementStream } = streamObject({
     model: aiConfig.model,
     ...(aiConfig.provider === "google" && {
-      providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
+      providerOptions: {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: options["thinking"] ? 2048 : 0,
+            includeThoughts: options["thinking"] || false
+          }
+        }
+      },
+    }),
+    ...(aiConfig.provider === "anthropic" && options["thinking"] && {
+      providerOptions: {
+        anthropic: {
+          // Lower temperature for more deliberate reasoning in thinking mode
+          temperature: 0.3,
+        }
+      }
     }),
     output: "array",
     schema: responseSchema,
-    system: systemInstruction,
-    prompt: userInstruction(status, diffSummary, diff),
+    // OpenAI o1 models don't support system prompts, so we need to include it in the user prompt
+    ...(aiConfig.provider === "openai" && options["thinking"]
+      ? {
+        prompt: `${systemInstruction}\n\n${userInstruction(status, diffSummary, diff)}`
+      }
+      : {
+        system: systemInstruction,
+        prompt: userInstruction(status, diffSummary, diff),
+      }
+    ),
   });
 
   const commitSpinner = spinner();

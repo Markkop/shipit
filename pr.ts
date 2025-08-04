@@ -102,6 +102,25 @@ export async function handlePullRequest({
 
     const { object: prInfo } = await generateObject({
       model: aiConfig.model,
+      ...(aiConfig.provider === "google" && {
+        providerOptions: {
+          google: {
+            thinkingConfig: {
+              thinkingBudget: options["thinking"] ? 2048 : 0,
+              includeThoughts: options["thinking"] || false,
+            },
+          },
+        },
+      }),
+      ...(aiConfig.provider === "anthropic" &&
+        options["thinking"] && {
+          providerOptions: {
+            anthropic: {
+              // Lower temperature for more deliberate reasoning in thinking mode
+              temperature: 0.3,
+            },
+          },
+        }),
       schema: prSchema,
       prompt: prInstruction(commits.all),
     });
