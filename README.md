@@ -59,6 +59,7 @@ shipit --help             # Show help and all options
 # Common use cases
 shipit -fu                # The want-to-get-shit-done combo
 shipit -y --pr            # The no-time-to-waste combo, get it in there
+shipit -t -y -p -h        # The premium just-do-it combo
 ```
 
 > [!NOTE]

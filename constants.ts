@@ -131,6 +131,7 @@ export const userInstruction = <Status>(
   status: Status,
   diffSummary: DiffResult,
   diff: string,
+  commitHistory?: string[],
 ) => `## Instructions
 
 You are an expert software developer tasked with writing a commit message for the following changes. Adhere to the **Conventional Commits** specification. The commit message should have a concise subject line and a more detailed body explaining the "what" and "why" of the changes.
@@ -155,6 +156,7 @@ ${JSON.stringify(diffSummary)}
 ${diff}
 \`\`\`
 
+${commitHistory && commitHistory.length > 0 ? `### Recent Commit History (latest ${commitHistory.length})\n\n${commitHistory.map((msg) => `- ${msg}`).join("\n")}\n\nUse these previous commits as reference for style, tone, and additional context when crafting the new commit messages.\n\n` : ""}
 ---
 
 ## Commit Message:`;

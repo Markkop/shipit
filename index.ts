@@ -37,7 +37,11 @@ cli
   .option("-p, --push", "Push the changes if any after processing all commits")
   .option("--pr", "Automatically create a pull request")
   .option("-j,--jira", "Enable Jira ticket ID integration from branch name")
-  .option("-t,--thinking", "Enable thinking models for deeper reasoning");
+  .option("-t,--thinking", "Enable thinking models for deeper reasoning")
+  .option(
+    "-h,--history",
+    "Include last 100 commit messages as additional context",
+  );
 
 cli.help();
 cli.version(version);
@@ -68,7 +72,9 @@ async function main() {
       chalk.italic("Because writing 'fix stuff' gets old real quick..."),
       chalk.bold("🧹 Git Your Sh*t Together"),
     );
-    log.info(`Using ${chalk.bold(aiConfig.name)} for AI assistance${options["thinking"] ? chalk.cyan(" (thinking mode enabled)") : ""}`);
+    log.info(
+      `Using ${chalk.bold(aiConfig.name)} for AI assistance${options["thinking"] ? chalk.cyan(" (thinking mode enabled)") : ""}`,
+    );
   }
 
   const analysisSpinner = spinner();
@@ -168,7 +174,37 @@ Pick a lane:
     )}!`,
   );
 
-  const prompt = userInstruction(status, diffSummary, diff);
+  // Build commit history if requested
+  let commitHistoryMessages: string[] | undefined;
+  if (options["history"]) {
+    try {
+      const logResult = await git.log({ maxCount: 100 });
+      commitHistoryMessages = logResult.all.map((c) => c.message);
+
+      if (
+        commitHistoryMessages.length > 0 &&
+        !options["silent"] &&
+        !options["force"] &&
+        !options["yes"]
+      ) {
+        log.info(
+          `Including ${chalk.bold(commitHistoryMessages.length)} recent commit ${pluralize(
+            commitHistoryMessages.length,
+            "message",
+          )} as additional context`,
+        );
+      }
+    } catch (error) {
+      log.warn(`Failed to fetch commit history: ${getErrorMessage(error)}`);
+    }
+  }
+
+  const prompt = userInstruction(
+    status,
+    diffSummary,
+    diff,
+    commitHistoryMessages,
+  );
 
   const actualTokenCount = countTokens(prompt);
   const category = categorizeTokenCount(actualTokenCount);
@@ -198,31 +234,31 @@ Pick a lane:
           google: {
             thinkingConfig: {
               thinkingBudget: options["thinking"] ? 2048 : 0,
-              includeThoughts: options["thinking"] || false
-            }
-          }
+              includeThoughts: options["thinking"] || false,
+            },
+          },
         },
       }),
-      ...(aiConfig.provider === "anthropic" && options["thinking"] && {
-        providerOptions: {
-          anthropic: {
-            // Lower temperature for more deliberate reasoning in thinking mode
-            temperature: 0.3,
-          }
-        }
-      }),
+      ...(aiConfig.provider === "anthropic" &&
+        options["thinking"] && {
+          providerOptions: {
+            anthropic: {
+              // Lower temperature for more deliberate reasoning in thinking mode
+              temperature: 0.3,
+            },
+          },
+        }),
       output: "array",
       schema: responseSchema,
       // OpenAI o1 models don't support system prompts, so we need to include it in the user prompt
       ...(aiConfig.provider === "openai" && options["thinking"]
         ? {
-          prompt: `${systemInstruction}\n\n${userInstruction(status, diffSummary, diff)}`
-        }
+            prompt: `${systemInstruction}\n\n${prompt}`,
+          }
         : {
-          system: systemInstruction,
-          prompt: userInstruction(status, diffSummary, diff),
-        }
-      ),
+            system: systemInstruction,
+            prompt,
+          }),
     });
     elementStream = result.elementStream;
   } catch (error) {
@@ -323,7 +359,14 @@ Pick a lane:
 
   try {
     if (commitCount > 0 && !options["force"] && !options["yes"]) {
-      await handlePullRequest({ git, log, spinner, confirm, options, aiConfig });
+      await handlePullRequest({
+        git,
+        log,
+        spinner,
+        confirm,
+        options,
+        aiConfig,
+      });
     }
 
     if (options["push"]) {
@@ -343,6 +386,7 @@ Pick a lane:
     );
   } else {
     outro("No commits? Time to get to work! 🙄");
+    process.exit(0);
   }
 }
 
@@ -359,7 +403,7 @@ async function runMain() {
 }
 
 // Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
+process.on("unhandledRejection", (reason, promise) => {
   const { log } = createPrompts({ silent: false, force: false });
   log.error(`💥 Unhandled promise rejection: ${getErrorMessage(reason)}`);
   log.info("Please report this issue if it persists.");
@@ -367,7 +411,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on("uncaughtException", (error) => {
   const { log } = createPrompts({ silent: false, force: false });
   log.error(`💥 Uncaught exception: ${getErrorMessage(error)}`);
   log.info("Please report this issue if it persists.");
@@ -375,13 +419,13 @@ process.on('uncaughtException', (error) => {
 });
 
 // Graceful shutdown on signals
-process.on('SIGINT', () => {
+process.on("SIGINT", () => {
   const { outro } = createPrompts({ silent: false, force: false });
   outro("👋 Interrupted by user. Goodbye!");
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on("SIGTERM", () => {
   const { outro } = createPrompts({ silent: false, force: false });
   outro("👋 Terminated. Goodbye!");
   process.exit(0);
